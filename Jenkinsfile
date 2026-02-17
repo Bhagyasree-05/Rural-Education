@@ -2,39 +2,41 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = "bhagyasree0506/rural-education"
-        CONTAINER_NAME = "rural-app"
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub') // Replace with your Jenkins credential ID
+        IMAGE_NAME = "bhagyasree0506/rural-education"
+        KUBE_CONFIG = credentials('kubeconfig') // optional if you use local kubeconfig
     }
 
     stages {
-
-        stage('Build Docker Image') {
+        stage('Checkout Code') {
             steps {
-                bat 'docker build -t %DOCKER_IMAGE% .'
+                git branch: 'main', url: 'https://github.com/Bhagyasree-05/Rural-Education.git'
             }
         }
 
-        stage('Login to Docker Hub') {
+        stage('Build Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred-new', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    bat 'docker login -u %USERNAME% -p %PASSWORD%'
+                bat "docker build -t ${IMAGE_NAME}:latest ."
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    bat "docker login -u %USERNAME% -p %PASSWORD%"
+                    bat "docker push ${IMAGE_NAME}:latest"
                 }
             }
         }
 
-        stage('Push to Docker Hub') {
+        stage('Deploy to Kubernetes') {
             steps {
-                bat 'docker push %DOCKER_IMAGE%'
-            }
-        }
+                // Apply deployment and service YAML
+                bat "kubectl apply -f k8s/deployment.yaml"
+                bat "kubectl apply -f k8s/service.yaml"
 
-        stage('Deploy Container') {
-            steps {
-                bat '''
-                docker stop %CONTAINER_NAME% || exit 0
-                docker rm %CONTAINER_NAME% || exit 0
-                docker run -d -p 8085:80 --name %CONTAINER_NAME% %DOCKER_IMAGE%
-                '''
+                // Optional: rollout restart to update pods with latest image
+                bat "kubectl rollout restart deployment rural-education-deployment"
             }
         }
     }
